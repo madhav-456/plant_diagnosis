@@ -14,6 +14,7 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 MODELS_DIR = BASE_DIR / "models"
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
+# Ensure required folders exist
 UPLOAD_DIR.mkdir(exist_ok=True)
 MODELS_DIR.mkdir(exist_ok=True)
 
@@ -25,15 +26,16 @@ app = Flask(
 )
 
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
-app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024  # 12 MB limit
 CORS(app)
 
 
+# ---------- Helpers ----------
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
 
 
-# ---------- Model loaders ----------
+# ---------- Model Loaders ----------
 def load_model(filename: str):
     path = MODELS_DIR / filename
     if path.exists():
@@ -52,7 +54,7 @@ FERT_MODEL = load_model("fertilizer_model.pkl")
 CROP_MODEL = load_model("crop_model.pkl")
 
 
-# ---------- Preprocess / Model inference ----------
+# ---------- Preprocess / Inference ----------
 def preprocess_image_for_model(image_path: str, size=(128, 128)):
     img = Image.open(image_path).convert("RGB")
     img = img.resize(size)
@@ -72,6 +74,7 @@ def disease_infer(image_path: str) -> dict:
         except Exception as e:
             app.logger.warning(f"Disease model error: {e}")
 
+    # Fallback dummy response
     return {
         "plant": "Tomato",
         "disease": "Early blight (dummy)",
@@ -87,11 +90,16 @@ def disease_infer(image_path: str) -> dict:
 def fertilizer_infer(payload: dict) -> dict:
     if FERT_MODEL:
         try:
-            features = [payload.get(k, 0) for k in ("soil_ph", "nitrogen", "phosphorus", "potassium")]
+            features = [
+                payload.get("soil_ph", 0),
+                payload.get("nitrogen", 0),
+                payload.get("phosphorus", 0),
+                payload.get("potassium", 0)
+            ]
             pred = FERT_MODEL.predict([features])[0]
             return {"recommendation": str(pred)}
         except Exception as e:
-            app.logger.warning(f"Fert model error: {e}")
+            app.logger.warning(f"Fertilizer model error: {e}")
 
     crop = payload.get("crop", "unknown")
     return {"recommendation": f"Apply balanced NPK for {crop}. (dummy recommendation)"}
@@ -164,7 +172,7 @@ def subsidy_page():
     return render_template("subsidy6.html")
 
 
-# Serve static files
+# ---------- Static File Routes ----------
 @app.route("/image/<path:filename>")
 def image_files(filename):
     return send_from_directory(str(STATIC_DIR / "image"), filename)
@@ -217,7 +225,6 @@ def api_crop_recommendation():
     if not payload:
         return jsonify({"error": "JSON payload expected"}), 400
 
-    # Map form data from your HTML
     data = {
         "soil_ph": payload.get("ph", 0),
         "rainfall": payload.get("rainfall", 0),
@@ -227,7 +234,6 @@ def api_crop_recommendation():
     return jsonify({"recommended_crop": result["recommended_crop"]})
 
 
-# Direct endpoint for your HTML fetch
 @app.route("/predict-crop", methods=["POST"])
 def predict_crop():
     payload = request.get_json(force=True)
@@ -258,11 +264,13 @@ def api_subsidies():
     return jsonify({"status": "success", "result": data})
 
 
-# ---------- Error handler ----------
+# ---------- Error Handler ----------
 @app.errorhandler(404)
 def not_found(err):
     return jsonify({"error": "Not found", "message": str(err)}), 404
 
 
+# ---------- Deployment-safe App Runner ----------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
