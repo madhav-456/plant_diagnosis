@@ -14,9 +14,12 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 MODELS_DIR = BASE_DIR / "models"
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
-# Ensure required folders exist
-UPLOAD_DIR.mkdir(exist_ok=True)
-MODELS_DIR.mkdir(exist_ok=True)
+# Ensure required folders exist (Railway-safe)
+for folder in [UPLOAD_DIR, MODELS_DIR]:
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except FileExistsError:
+        pass
 
 app = Flask(
     __name__,
