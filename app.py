@@ -16,10 +16,15 @@ MODELS_DIR = BASE_DIR / "models"
 
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
-# Create folders safely (Railway-safe)
+# Create folders safely (handles existing files too)
 for folder in [UPLOAD_DIR, MODELS_DIR]:
-    if not folder.exists():
-        folder.mkdir(parents=True)
+    if folder.exists():
+        if not folder.is_dir():
+            # If a file exists with the same name, remove it first
+            folder.unlink()
+            folder.mkdir(parents=True, exist_ok=True)
+    else:
+        folder.mkdir(parents=True, exist_ok=True)
 
 # ------------------ Flask App ------------------
 app = Flask(
