@@ -8,7 +8,7 @@ import joblib
 from PIL import Image
 import numpy as np
 
-# Base Directories
+# ------------------ Base Directories ------------------
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -16,11 +16,12 @@ MODELS_DIR = BASE_DIR / "models"
 
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
-# Create folders if missing (Railway-safe)
+# Create folders safely (Railway-safe)
 for folder in [UPLOAD_DIR, MODELS_DIR]:
-    folder.mkdir(parents=True, exist_ok=True)
+    if not folder.exists():
+        folder.mkdir(parents=True)
 
-# Flask App
+# ------------------ Flask App ------------------
 app = Flask(
     __name__,
     static_folder=str(STATIC_DIR),
