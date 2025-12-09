@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from flask import Flask, request, jsonify, abort, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import uuid
@@ -8,19 +8,19 @@ import joblib
 from PIL import Image
 import numpy as np
 
+# Base Directories
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 UPLOAD_DIR = BASE_DIR / "uploads"
 MODELS_DIR = BASE_DIR / "models"
+
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
-# Ensure required folders exist (Railway-safe)
+# Create folders if missing (Railway-safe)
 for folder in [UPLOAD_DIR, MODELS_DIR]:
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-    except FileExistsError:
-        pass
+    folder.mkdir(parents=True, exist_ok=True)
 
+# Flask App
 app = Flask(
     __name__,
     static_folder=str(STATIC_DIR),
@@ -29,27 +29,25 @@ app = Flask(
 )
 
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
-app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024  # 12 MB limit
+app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024  # 12 MB
 CORS(app)
 
 
-# ---------- Helpers ----------
+# ------------------ Helpers ------------------
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
 
 
-# ---------- Model Loaders ----------
+# ------------------ Model Loader ------------------
 def load_model(filename: str):
     path = MODELS_DIR / filename
-    if path.exists():
-        try:
-            model = joblib.load(path)
-            app.logger.info(f"Loaded model: {filename}")
-            return model
-        except Exception as e:
-            app.logger.warning(f"Failed to load {filename}: {e}")
-            return None
-    return None
+    if not path.exists():
+        return None
+    try:
+        return joblib.load(path)
+    except Exception as e:
+        print(f"Model load error ({filename}): {e}")
+        return None
 
 
 DISEASE_MODEL = load_model("disease_model.pkl")
@@ -57,7 +55,7 @@ FERT_MODEL = load_model("fertilizer_model.pkl")
 CROP_MODEL = load_model("crop_model.pkl")
 
 
-# ---------- Preprocess / Inference ----------
+# ------------------ Prediction Helpers ------------------
 def preprocess_image_for_model(image_path: str, size=(128, 128)):
     img = Image.open(image_path).convert("RGB")
     img = img.resize(size)
@@ -65,32 +63,33 @@ def preprocess_image_for_model(image_path: str, size=(128, 128)):
     return arr.flatten()
 
 
-def disease_infer(image_path: str) -> dict:
+def disease_infer(image_path: str):
     if DISEASE_MODEL:
         try:
             x = preprocess_image_for_model(image_path)
             pred = DISEASE_MODEL.predict([x])[0]
             prob = None
+
             if hasattr(DISEASE_MODEL, "predict_proba"):
                 prob = float(DISEASE_MODEL.predict_proba([x]).max())
+
             return {"plant": "unknown", "disease": str(pred), "confidence": prob}
         except Exception as e:
-            app.logger.warning(f"Disease model error: {e}")
+            print("Disease model error:", e)
 
-    # Fallback dummy response
     return {
         "plant": "Tomato",
         "disease": "Early blight (dummy)",
         "confidence": 0.87,
         "advice": [
-            "Remove affected leaves",
-            "Use a copper-based fungicide",
+            "Remove infected leaves",
+            "Use copper-based fungicide",
             "Improve ventilation"
         ]
     }
 
 
-def fertilizer_infer(payload: dict) -> dict:
+def fertilizer_infer(payload: dict):
     if FERT_MODEL:
         try:
             features = [
@@ -102,13 +101,13 @@ def fertilizer_infer(payload: dict) -> dict:
             pred = FERT_MODEL.predict([features])[0]
             return {"recommendation": str(pred)}
         except Exception as e:
-            app.logger.warning(f"Fertilizer model error: {e}")
+            print("Fertilizer model error:", e)
 
     crop = payload.get("crop", "unknown")
-    return {"recommendation": f"Apply balanced NPK for {crop}. (dummy recommendation)"}
+    return {"recommendation": f"Use balanced NPK for {crop} (dummy advice)"}
 
 
-def crop_infer(payload: dict) -> dict:
+def crop_infer(payload: dict):
     if CROP_MODEL:
         try:
             features = [
@@ -119,27 +118,27 @@ def crop_infer(payload: dict) -> dict:
             pred = CROP_MODEL.predict([features])[0]
             return {"recommended_crop": str(pred)}
         except Exception as e:
-            app.logger.warning(f"Crop model error: {e}")
+            print("Crop model error:", e)
 
-    return {"recommended_crop": "Maize", "reason": "Dummy rule"}
-
-
-def ai_assistant_query(q: str) -> dict:
-    return {"query": q, "answer": "Demo AI response. Replace with real LLM."}
+    return {"recommended_crop": "Maize"}
 
 
-def subsidy_lookup(country: str = "IN", crop: str = None) -> dict:
+def ai_assistant_query(q: str):
+    return {"query": q, "answer": "Demo AI response. Connect real LLM later."}
+
+
+def subsidy_lookup(country="IN", crop=None):
     return {
         "country": country,
         "crop": crop,
         "subsidies": [
-            {"program": "GreenGrow", "amount": "20,000", "currency": "INR", "eligibility": "Smallholders"},
-            {"program": "Irrigation Grant", "amount": "50,000", "currency": "INR", "eligibility": "Irrigation systems"}
+            {"program": "GreenGrow", "amount": "20000", "currency": "INR", "eligibility": "Smallholders"},
+            {"program": "Irrigation Grant", "amount": "50000", "currency": "INR", "eligibility": "Irrigation Systems"}
         ]
     }
 
 
-# ---------- HTML PAGES ----------
+# ------------------ HTML Pages ------------------
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -175,38 +174,39 @@ def subsidy_page():
     return render_template("subsidy6.html")
 
 
-# ---------- Static File Routes ----------
+# ------------------ Static Files ------------------
 @app.route("/image/<path:filename>")
 def image_files(filename):
-    return send_from_directory(str(STATIC_DIR / "image"), filename)
+    return send_from_directory(STATIC_DIR / "image", filename)
 
 
 @app.route("/css/<path:filename>")
 def css_files(filename):
-    return send_from_directory(str(STATIC_DIR / "css"), filename)
+    return send_from_directory(STATIC_DIR / "css", filename)
 
 
 @app.route("/js/<path:filename>")
 def js_files(filename):
-    return send_from_directory(str(STATIC_DIR / "js"), filename)
+    return send_from_directory(STATIC_DIR / "js", filename)
 
 
-# ---------- API ENDPOINTS ----------
+# ------------------ API ------------------
 @app.route("/api/predict_disease", methods=["POST"])
 def api_predict_disease():
     if "file" not in request.files:
         return jsonify({"error": "file required"}), 400
 
     file = request.files["file"]
+
     if file.filename == "":
         return jsonify({"error": "empty filename"}), 400
 
     if not allowed_file(file.filename):
-        return jsonify({"error": "unsupported file type"}), 400
+        return jsonify({"error": "invalid file type"}), 400
 
     fname = secure_filename(file.filename)
-    unique_name = f"{uuid.uuid4().hex}_{fname}"
-    save_path = Path(app.config["UPLOAD_FOLDER"]) / unique_name
+    unique = f"{uuid.uuid4().hex}_{fname}"
+    save_path = UPLOAD_DIR / unique
     file.save(str(save_path))
 
     result = disease_infer(str(save_path))
@@ -214,48 +214,38 @@ def api_predict_disease():
 
 
 @app.route("/api/fertilizer_advice", methods=["POST"])
-def api_fertilizer_advice():
-    payload = request.get_json(force=True, silent=True)
+def api_fertilizer():
+    payload = request.get_json(silent=True)
     if not payload:
-        return jsonify({"error": "JSON payload expected"}), 400
+        return jsonify({"error": "JSON required"}), 400
+
     result = fertilizer_infer(payload)
     return jsonify({"status": "success", "result": result})
 
 
 @app.route("/api/crop_recommendation", methods=["POST"])
-def api_crop_recommendation():
-    payload = request.get_json(force=True, silent=True)
+def api_crop():
+    payload = request.get_json(silent=True)
     if not payload:
-        return jsonify({"error": "JSON payload expected"}), 400
+        return jsonify({"error": "JSON required"}), 400
 
     data = {
         "soil_ph": payload.get("ph", 0),
         "rainfall": payload.get("rainfall", 0),
-        "temperature": payload.get("temperature", 0)
+        "temperature": payload.get("temperature", 0),
     }
-    result = crop_infer(data)
-    return jsonify({"recommended_crop": result["recommended_crop"]})
 
-
-@app.route("/predict-crop", methods=["POST"])
-def predict_crop():
-    payload = request.get_json(force=True)
-    data = {
-        "soil_ph": payload.get("ph", 0),
-        "rainfall": payload.get("rainfall", 0),
-        "temperature": payload.get("temperature", 0)
-    }
     result = crop_infer(data)
     return jsonify(result)
 
 
 @app.route("/api/ai_assistant", methods=["POST"])
-def api_ai_assistant():
-    payload = request.get_json(force=True, silent=True)
+def api_ai():
+    payload = request.get_json(silent=True)
     if not payload or "query" not in payload:
-        return jsonify({"error": "JSON with 'query' required"}), 400
-    q = payload["query"]
-    result = ai_assistant_query(q)
+        return jsonify({"error": "query required"}), 400
+
+    result = ai_assistant_query(payload["query"])
     return jsonify({"status": "success", "result": result})
 
 
@@ -263,17 +253,17 @@ def api_ai_assistant():
 def api_subsidies():
     country = request.args.get("country", "IN")
     crop = request.args.get("crop")
-    data = subsidy_lookup(country, crop)
-    return jsonify({"status": "success", "result": data})
+    result = subsidy_lookup(country, crop)
+    return jsonify({"status": "success", "result": result})
 
 
-# ---------- Error Handler ----------
+# ------------------ Error ------------------
 @app.errorhandler(404)
 def not_found(err):
-    return jsonify({"error": "Not found", "message": str(err)}), 404
+    return jsonify({"error": "Not found"}), 404
 
 
-# ---------- Deployment-safe App Runner ----------
+# ------------------ Run App ------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
