@@ -16,11 +16,10 @@ MODELS_DIR = BASE_DIR / "models"
 
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
-# Create folders safely (handles existing files too)
+# Create folders safely
 for folder in [UPLOAD_DIR, MODELS_DIR]:
     if folder.exists():
         if not folder.is_dir():
-            # If a file exists with the same name, remove it first
             folder.unlink()
             folder.mkdir(parents=True, exist_ok=True)
     else:
@@ -30,7 +29,7 @@ for folder in [UPLOAD_DIR, MODELS_DIR]:
 app = Flask(
     __name__,
     static_folder=str(STATIC_DIR),
-    template_folder="templates",
+    template_folder=str(STATIC_DIR / "templates"),  # Fixed template path
     static_url_path="/static"
 )
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
